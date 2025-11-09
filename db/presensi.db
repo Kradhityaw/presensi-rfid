@@ -1,0 +1,224 @@
+-- ============================================
+-- SUPABASE DATABASE SCHEMA UNTUK MESIN PRESENSI
+-- Versi: Simplified untuk Teaching Factory
+-- ============================================
+
+-- 1. TABEL ORGANISASI
+-- Menyimpan data sekolah/instansi
+CREATE TABLE organizations (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    phone VARCHAR(20),
+    address TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2. TABEL DEPARTEMEN/KELAS
+-- Menyimpan data kelas atau departemen
+CREATE TABLE departments (
+    id BIGSERIAL PRIMARY KEY,
+    organization_id BIGINT REFERENCES organizations(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    description TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. TABEL USER PROFILES
+-- Menyimpan data pribadi user (siswa/guru/karyawan)
+CREATE TABLE user_profiles (
+    id BIGSERIAL PRIMARY KEY,
+    first_name VARCHAR(100) NOT NULL,
+    last_name VARCHAR(100),
+    email VARCHAR(255) UNIQUE,
+    phone VARCHAR(20),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 4. TABEL ORGANIZATION MEMBERS
+-- Menghubungkan user dengan organisasi dan departemen
+CREATE TABLE organization_members (
+    id BIGSERIAL PRIMARY KEY,
+    organization_id BIGINT REFERENCES organizations(id) ON DELETE CASCADE,
+    user_profile_id BIGINT REFERENCES user_profiles(id) ON DELETE CASCADE,
+    department_id BIGINT REFERENCES departments(id) ON DELETE SET NULL,
+    member_role VARCHAR(50) DEFAULT 'member', -- 'admin', 'member', 'teacher', 'student'
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(organization_id, user_profile_id)
+);
+
+-- 5. TABEL RFID CARDS
+-- Menyimpan data kartu RFID
+CREATE TABLE rfid_cards (
+    id BIGSERIAL PRIMARY KEY,
+    organization_member_id BIGINT REFERENCES organization_members(id) ON DELETE CASCADE,
+    card_number VARCHAR(50) NOT NULL UNIQUE,
+    is_active BOOLEAN DEFAULT TRUE,
+    registered_at TIMESTAMPTZ DEFAULT NOW(),
+    last_used_at TIMESTAMPTZ
+);
+
+-- 6. TABEL ATTENDANCE DEVICES
+-- Menyimpan data mesin presensi
+CREATE TABLE attendance_devices (
+    id BIGSERIAL PRIMARY KEY,
+    organization_id BIGINT REFERENCES organizations(id) ON DELETE CASCADE,
+    serial_number VARCHAR(100) NOT NULL UNIQUE,
+    device_name VARCHAR(100),
+    location VARCHAR(255),
+    is_active BOOLEAN DEFAULT TRUE,
+    last_online_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 7. TABEL ATTENDANCE RECORDS
+-- Menyimpan data presensi
+CREATE TABLE attendance_records (
+    id BIGSERIAL PRIMARY KEY,
+    organization_member_id BIGINT REFERENCES organization_members(id) ON DELETE CASCADE,
+    attendance_device_id BIGINT REFERENCES attendance_devices(id) ON DELETE SET NULL,
+    event_time TIMESTAMPTZ NOT NULL,
+    event_type VARCHAR(20) DEFAULT 'tap', -- 'tap', 'check_in', 'check_out'
+    sync_status VARCHAR(20) DEFAULT 'synced', -- 'synced', 'pending'
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================
+-- INDEXES UNTUK PERFORMA
+-- ============================================
+
+CREATE INDEX idx_rfid_cards_card_number ON rfid_cards(card_number);
+CREATE INDEX idx_rfid_cards_member_id ON rfid_cards(organization_member_id);
+CREATE INDEX idx_attendance_records_member_id ON attendance_records(organization_member_id);
+CREATE INDEX idx_attendance_records_event_time ON attendance_records(event_time);
+CREATE INDEX idx_attendance_devices_serial ON attendance_devices(serial_number);
+CREATE INDEX idx_organization_members_org_id ON organization_members(organization_id);
+
+-- ============================================
+-- ROW LEVEL SECURITY (RLS) - OPTIONAL
+-- Aktifkan jika ingin keamanan lebih ketat
+-- ============================================
+
+-- ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE departments ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE organization_members ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE rfid_cards ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE attendance_devices ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE attendance_records ENABLE ROW LEVEL SECURITY;
+
+-- ============================================
+-- STORED PROCEDURE UNTUK BATCH UPLOAD
+-- Fungsi untuk menerima multiple attendance records sekaligus
+-- ============================================
+
+CREATE OR REPLACE FUNCTION handle_attendance_batch(taps JSONB)
+RETURNS TEXT AS $$
+DECLARE
+    tap JSONB;
+    member_id BIGINT;
+    event_time TIMESTAMPTZ;
+    inserted_count INTEGER := 0;
+BEGIN
+    -- Loop through each tap in the batch
+    FOR tap IN SELECT * FROM jsonb_array_elements(taps)
+    LOOP
+        -- Extract values
+        member_id := (tap->>'member_id_input')::BIGINT;
+        event_time := (tap->>'event_time_input')::TIMESTAMPTZ;
+        
+        -- Insert attendance record
+        INSERT INTO attendance_records (
+            organization_member_id,
+            event_time,
+            event_type,
+            sync_status
+        ) VALUES (
+            member_id,
+            event_time,
+            'tap',
+            'synced'
+        );
+        
+        inserted_count := inserted_count + 1;
+        
+        -- Update last_used_at in rfid_cards
+        UPDATE rfid_cards 
+        SET last_used_at = event_time
+        WHERE organization_member_id = member_id;
+    END LOOP;
+    
+    RETURN 'BATCH_PROCESSED: ' || inserted_count || ' records inserted';
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================
+-- DATA SAMPLE UNTUK TESTING
+-- ============================================
+
+-- Insert sample organization
+INSERT INTO organizations (id, name, phone, address) VALUES
+(1, 'Teaching Factory SMKN 100 Malang', '0812-3456-7890', 'Jl. Pendidikan No. 100, Malang, Jawa Timur');
+
+-- Insert sample departments
+INSERT INTO departments (organization_id, name, description) VALUES
+(1, 'Teknik Komputer dan Jaringan', 'Kelas XII TKJ'),
+(1, 'Rekayasa Perangkat Lunak', 'Kelas XII RPL'),
+(1, 'Multimedia', 'Kelas XII MM');
+
+-- Insert sample user profiles
+INSERT INTO user_profiles (id, first_name, last_name, email, phone) VALUES
+(1, 'Budi', 'Santoso', 'budi.santoso@smkn100.sch.id', '0812-1111-1111'),
+(2, 'Ani', 'Wijaya', 'ani.wijaya@smkn100.sch.id', '0812-2222-2222'),
+(3, 'Candra', 'Putra', 'candra.putra@smkn100.sch.id', '0812-3333-3333');
+
+-- Insert sample organization members
+INSERT INTO organization_members (id, organization_id, user_profile_id, department_id, member_role) VALUES
+(1, 1, 1, 1, 'student'),
+(2, 1, 2, 2, 'student'),
+(3, 1, 3, 1, 'student');
+
+-- Insert sample RFID cards
+INSERT INTO rfid_cards (organization_member_id, card_number) VALUES
+(1, 'a1b2c3d4'),
+(2, 'e5f6g7h8'),
+(3, 'i9j0k1l2');
+
+-- Insert sample attendance device
+INSERT INTO attendance_devices (id, organization_id, serial_number, device_name, location) VALUES
+(1, 1, 'UBIG-101-12345678', 'Mesin Presensi Lab IoT', 'Laboratorium IoT Lt.2');
+
+-- ============================================
+-- QUERIES UNTUK TESTING
+-- ============================================
+
+-- 1. Cek semua kartu RFID dengan data lengkap
+SELECT 
+    rc.card_number,
+    up.first_name || ' ' || up.last_name AS full_name,
+    d.name AS department,
+    om.member_role
+FROM rfid_cards rc
+JOIN organization_members om ON rc.organization_member_id = om.id
+JOIN user_profiles up ON om.user_profile_id = up.id
+LEFT JOIN departments d ON om.department_id = d.id
+WHERE om.organization_id = 1 AND rc.is_active = TRUE;
+
+-- 2. Cek attendance records hari ini
+SELECT 
+    up.first_name || ' ' || up.last_name AS nama,
+    d.name AS kelas,
+    ar.event_time,
+    ar.event_type
+FROM attendance_records ar
+JOIN organization_members om ON ar.organization_member_id = om.id
+JOIN user_profiles up ON om.user_profile_id = up.id
+LEFT JOIN departments d ON om.department_id = d.id
+WHERE DATE(ar.event_time) = CURRENT_DATE
+ORDER BY ar.event_time DESC;
+
+-- 3. Test batch upload function
+SELECT handle_attendance_batch('[
+    {"member_id_input": 1, "event_time_input": "2025-01-15T08:00:00+00:00"},
+    {"member_id_input": 2, "event_time_input": "2025-01-15T08:05:00+00:00"}
+]'::jsonb);
