@@ -47,8 +47,8 @@ FILE_BACKUP = '/sd/backup_presensi.json'
 # ============================================
 
 DATABASE_KARTU = {
-    "a1b2c3d4": {"nama": "Budi Santoso", "kelas": "XII TKJ", "member_id": 1},
-    "e5f6g7h8": {"nama": "Ani Wijaya", "kelas": "XII RPL", "member_id": 2},
+    "22abda1c": {"nama": "Budi Santoso", "kelas": "XII TKJ", "member_id": 1},
+    "6d02cbd3": {"nama": "Ani Wijaya", "kelas": "XII RPL", "member_id": 2},
     "i9j0k1l2": {"nama": "Candra Putra", "kelas": "XII TKJ", "member_id": 3},
 }
 
@@ -83,7 +83,18 @@ def init_rtc(i2c):
     try:
         rtc = DS3231(i2c)
         dt = rtc.date_time()
-        print(f"✓ RTC OK: {dt[0]}-{dt[1]:02d}-{dt[2]:02d} {dt[3]:02d}:{dt[4]:02d}:{dt[5]:02d}")
+        
+        # Cek apakah RTC perlu dikalibrasi (tahun < 2024)
+        if dt[0] < 2024:
+            print(f"⚠ RTC belum dikalibrasi (tahun: {dt[0]})")
+            print("  RTC akan di-set ke waktu default: 2025-01-15 08:00:00")
+            # Set ke waktu default
+            rtc.date_time((2025, 1, 15, 8, 0, 0, 3))  # 2025-01-15 08:00:00 Rabu
+            dt = rtc.date_time()
+            print(f"✓ RTC di-set ke: {dt[0]:04d}-{dt[1]:02d}-{dt[2]:02d} {dt[3]:02d}:{dt[4]:02d}:{dt[5]:02d}")
+        else:
+            print(f"✓ RTC OK: {dt[0]}-{dt[1]:02d}-{dt[2]:02d} {dt[3]:02d}:{dt[4]:02d}:{dt[5]:02d}")
+        
         return rtc
     except Exception as e:
         print(f"✗ RTC error: {e}")
@@ -173,6 +184,25 @@ def bunyi_save(buzzer):
 # ============================================
 # FUNGSI RTC
 # ============================================
+
+def set_waktu_rtc(rtc, year, month, day, hour, minute, second, weekday):
+    """
+    Set waktu RTC secara manual
+    weekday: 1=Senin, 2=Selasa, 3=Rabu, 4=Kamis, 5=Jumat, 6=Sabtu, 7=Minggu
+    
+    Contoh:
+    set_waktu_rtc(rtc, 2025, 1, 15, 14, 30, 0, 3)  # 2025-01-15 14:30:00 Rabu
+    """
+    print(f"\nSetting waktu RTC...")
+    print(f"  Tanggal: {year:04d}-{month:02d}-{day:02d}")
+    print(f"  Waktu  : {hour:02d}:{minute:02d}:{second:02d}")
+    
+    rtc.date_time((year, month, day, hour, minute, second, weekday))
+    time.sleep_ms(100)
+    
+    # Verifikasi
+    dt = rtc.date_time()
+    print(f"✓ RTC berhasil di-set: {dt[0]:04d}-{dt[1]:02d}-{dt[2]:02d} {dt[3]:02d}:{dt[4]:02d}:{dt[5]:02d}")
 
 def get_timestamp_string(rtc):
     """Timestamp format ISO8601"""
@@ -485,6 +515,17 @@ def main():
     print("\nTekan Ctrl+C untuk melihat data dan keluar")
     print("="*60 + "\n")
     
+    # ============================================
+    # KALIBRASI WAKTU RTC (OPTIONAL)
+    # ============================================
+    # Uncomment baris di bawah untuk set waktu manual:
+    # Format: set_waktu_rtc(rtc, tahun, bulan, tanggal, jam, menit, detik, hari)
+    # Hari: 1=Senin, 2=Selasa, 3=Rabu, 4=Kamis, 5=Jumat, 6=Sabtu, 7=Minggu
+    
+    # Contoh set ke waktu saat ini (sesuaikan manual):
+    # set_waktu_rtc(rtc, 2025, 1, 17, 11, 30, 0, 5)  # 17 Jan 2025, 11:30, Jumat
+    # ============================================
+    
     tampilkan_home(oled, rtc)
     
     # Variable tracking
@@ -572,11 +613,36 @@ if __name__ == "__main__":
 """
 FITUR BARU DI MATERI 05:
 1. ✓ Auto-save setiap presensi ke SD Card (format JSON)
-2. ✓ Load data existing saat sistem start
-3. ✓ Backup file presensi otomatis
-4. ✓ Export data ke format CSV
-5. ✓ Bunyi konfirmasi saat data tersimpan
-6. ✓ Statistik lengkap saat program dihentikan
+2. ✓ Auto-set waktu RTC jika belum dikalibrasi
+3. ✓ Fungsi manual untuk kalibrasi waktu RTC
+4. ✓ Load data existing saat sistem start
+5. ✓ Backup file presensi otomatis
+6. ✓ Export data ke format CSV
+7. ✓ Bunyi konfirmasi saat data tersimpan
+8. ✓ Statistik lengkap saat program dihentikan
+
+CARA KALIBRASI WAKTU RTC:
+
+METODE 1: AUTO-SET (Default)
+- RTC otomatis di-set ke 2025-01-15 08:00:00 jika tahun < 2024
+- Cocok untuk testing awal
+
+METODE 2: MANUAL SET
+1. Cari bagian kode dengan komentar "KALIBRASI WAKTU RTC"
+2. Uncomment baris set_waktu_rtc()
+3. Edit parameter sesuai waktu sekarang:
+   
+   set_waktu_rtc(rtc, tahun, bulan, tanggal, jam, menit, detik, hari)
+   
+   Contoh set ke 17 Januari 2025 jam 11:30:00 (Jumat):
+   set_waktu_rtc(rtc, 2025, 1, 17, 11, 30, 0, 5)
+
+4. Upload program
+5. Setelah RTC ter-set, comment kembali baris tersebut
+6. Upload ulang (agar tidak reset setiap restart)
+
+KODE HARI DALAM SEMINGGU:
+1 = Senin, 2 = Selasa, 3 = Rabu, 4 = Kamis, 5 = Jumat, 6 = Sabtu, 7 = Minggu
 
 STRUKTUR FILE DI SD CARD:
 /sd/presensi.json         → File utama data presensi (JSON array)
@@ -605,13 +671,14 @@ CARA TESTING:
    - ds3231.py
    - sdcard.py (biasanya sudah built-in)
 3. Upload program ini ke ESP32
-4. Tap beberapa kartu RFID untuk presensi
-5. Data otomatis tersimpan ke SD Card
-6. Tekan Ctrl+C untuk melihat:
+4. Sistem akan otomatis mengecek dan set waktu RTC jika perlu
+5. Tap beberapa kartu RFID untuk presensi
+6. Data otomatis tersimpan ke SD Card
+7. Tekan Ctrl+C untuk melihat:
    - Total presensi tersimpan
    - Daftar 10 presensi terakhir
    - Data lengkap format CSV
-7. File backup dan CSV otomatis dibuat
+8. File backup dan CSV otomatis dibuat
 
 CARA MENGAMBIL DATA DARI SD CARD:
 1. Matikan ESP32
@@ -635,12 +702,15 @@ KEUNGGULAN SD CARD STORAGE:
 ✓ Mudah diakses untuk laporan/analisis
 ✓ Format JSON standar, mudah di-parse
 ✓ Bisa diekspor ke Excel
+✓ Timestamp akurat dari RTC DS3231
 
 TIPS TROUBLESHOOTING:
 - SD Card tidak terdeteksi: Cek koneksi SPI, pastikan format FAT32
 - Error saat write: Cek apakah SD Card full atau write-protected
 - Data hilang: Selalu buat backup sebelum hapus file
 - Slow performance: Gunakan SD Card yang cepat (Class 10)
+- Waktu tidak akurat: Kalibrasi RTC dengan set_waktu_rtc()
+- Waktu reset ke 2000: Ganti baterai CR2032 di modul RTC
 
 NEXT STEP (Materi 06):
 - Integrasi dengan database Supabase
