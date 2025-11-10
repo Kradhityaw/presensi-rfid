@@ -517,7 +517,7 @@ def main():
                 else:
                     tampilkan_kartu_tidak_terdaftar(oled)
                 
-                time.sleep(3)
+                time.sleep(1)
                 tampilkan_home(oled, rtc)
             
             time.sleep_ms(100)

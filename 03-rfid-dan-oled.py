@@ -273,7 +273,7 @@ def main():
                     tampilkan_kartu_tidak_terdaftar(oled, card_id)
                 
                 # Tunggu 3 detik, lalu kembali ke home
-                time.sleep(3)
+                time.sleep(1)
                 tampilkan_home(oled)
             
             # Delay kecil untuk hemat CPU

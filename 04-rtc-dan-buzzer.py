@@ -427,7 +427,7 @@ def main():
                     tampilkan_kartu_tidak_terdaftar(oled)
                 
                 # Kembali ke home setelah 3 detik
-                time.sleep(3)
+                time.sleep(1)
                 tampilkan_home(oled, rtc)
             
             time.sleep_ms(100)
